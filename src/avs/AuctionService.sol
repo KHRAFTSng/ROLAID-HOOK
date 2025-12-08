@@ -71,7 +71,7 @@ contract AuctionService is OwnableLite {
         address bidder,
         uint96 bidAmount,
         bytes calldata settlementData
-    ) external {
+    ) external payable {
         Auction storage a = auctions[id];
         require(a.endTime != 0, "unknown auction");
         require(!a.settled, "settled");
@@ -79,6 +79,7 @@ contract AuctionService is OwnableLite {
         require(block.timestamp <= a.endTime + submissionGracePeriod, "expired");
         require(attestationRegistry.verify(appId, imageDigest), "attest fail");
         require(bidder != address(0), "bidder=0");
+        require(msg.value == bidAmount, "value!=bid");
 
         bytes32 settlementHash = keccak256(settlementData);
 
@@ -87,7 +88,7 @@ contract AuctionService is OwnableLite {
         a.settlementHash = settlementHash;
         a.settled = true;
 
-        settlementVault.recordProceeds(bidAmount);
+        settlementVault.recordProceeds{value: msg.value}(bidAmount);
 
         emit SettlementSubmitted(id, bidder, bidAmount, settlementHash, appId, imageDigest);
     }

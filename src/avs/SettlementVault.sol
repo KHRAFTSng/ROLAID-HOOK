@@ -3,12 +3,12 @@ pragma solidity ^0.8.26;
 
 import {OwnableLite} from "./OwnableLite.sol";
 
-/// @notice Records proceeds split between LP vault and insurance vault destinations.
+/// @notice Records proceeds split between LP vault and insurance vault destinations (native ETH).
 contract SettlementVault is OwnableLite {
     uint256 public constant BPS_DENOMINATOR = 10_000;
 
-    address public lpSink;
-    address public insuranceSink;
+    address payable public lpSink;
+    address payable public insuranceSink;
     uint16 public lpShareBps; // remainder to insurance
 
     mapping(address caller => bool allowed) public isAuthorized;
@@ -18,7 +18,7 @@ contract SettlementVault is OwnableLite {
     event Authorized(address indexed caller, bool allowed);
     event ProceedsRecorded(uint256 amount, uint256 lpAmount, uint256 insuranceAmount);
 
-    constructor(address _lpSink, address _insuranceSink, uint16 _lpShareBps) {
+    constructor(address payable _lpSink, address payable _insuranceSink, uint16 _lpShareBps) {
         require(_lpSink != address(0) && _insuranceSink != address(0), "sink=0");
         require(_lpShareBps <= BPS_DENOMINATOR, "bps>1");
         lpSink = _lpSink;
@@ -36,7 +36,7 @@ contract SettlementVault is OwnableLite {
         emit Authorized(caller, allowed);
     }
 
-    function setSinks(address _lpSink, address _insuranceSink) external onlyOwner {
+    function setSinks(address payable _lpSink, address payable _insuranceSink) external onlyOwner {
         require(_lpSink != address(0) && _insuranceSink != address(0), "sink=0");
         lpSink = _lpSink;
         insuranceSink = _insuranceSink;
@@ -49,10 +49,15 @@ contract SettlementVault is OwnableLite {
         emit SplitUpdated(_lpShareBps);
     }
 
-    /// @notice Record proceeds; actual fund movement handled externally/offchain for now.
-    function recordProceeds(uint256 amount) external onlyAuthorized {
+    /// @notice Record proceeds and split native ETH according to lpShareBps.
+    function recordProceeds(uint256 amount) external payable onlyAuthorized {
+        require(msg.value == amount, "value!=amount");
         uint256 lpAmount = (amount * lpShareBps) / BPS_DENOMINATOR;
         uint256 insuranceAmount = amount - lpAmount;
+        (bool s1, ) = lpSink.call{value: lpAmount}("");
+        require(s1, "lp send fail");
+        (bool s2, ) = insuranceSink.call{value: insuranceAmount}("");
+        require(s2, "ins send fail");
         emit ProceedsRecorded(amount, lpAmount, insuranceAmount);
     }
 }
