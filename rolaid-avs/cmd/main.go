@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -74,6 +75,10 @@ func (tw *TaskWorker) ValidateTask(t *performerV1.TaskRequest) error {
 		return fmt.Errorf("missing task payload")
 	}
 
+	if _, err := decodeTaskEnvelope(t.GetData()); err != nil {
+		return fmt.Errorf("invalid task payload: %w", err)
+	}
+
 	return nil
 }
 
@@ -82,9 +87,23 @@ func (tw *TaskWorker) HandleTask(t *performerV1.TaskRequest) (*performerV1.TaskR
 		zap.Any("task", t),
 	)
 
-	// Placeholder routing: in a full implementation, decode `t.Data` to determine
-	// whether this is an auction-settlement task or an insurance-payout task.
-	taskKind := "unknown"
+	env, err := decodeTaskEnvelope(t.GetData())
+	if err != nil {
+		return nil, fmt.Errorf("decode envelope: %w", err)
+	}
+
+	var resultBytes []byte
+	switch env.Kind {
+	case "auction_settlement":
+		resultBytes, err = tw.handleAuctionSettlement(env.Auction)
+	case "insurance_payout":
+		resultBytes, err = tw.handleInsurancePayout(env.Insurance)
+	default:
+		err = fmt.Errorf("unsupported task kind: %s", env.Kind)
+	}
+	if err != nil {
+		return nil, err
+	}
 
 	// Example: interact with onchain components if configured
 	if tw.contractStore != nil {
@@ -106,29 +125,79 @@ func (tw *TaskWorker) HandleTask(t *performerV1.TaskRequest) (*performerV1.TaskR
 		}
 
 		// Example 2: Get custom contract addresses
-		if helloWorldL1, err := tw.contractStore.GetContract("HELLO_WORLD_L1"); err == nil {
-			tw.logger.Info("HelloWorldL1 contract", zap.String("address", helloWorldL1.Hex()))
-
-			// Use the address to create a contract binding
-			contract, err := helloworldl1.NewHelloWorldL1(helloWorldL1, tw.l1Client)
-			if err == nil {
-				message, _ := contract.GetMessage(nil)
-				tw.logger.Info("Contract message", zap.String("message", message))
-			}
-		}
+		// Replace this with your deployed contract addresses (e.g., AuctionService / SettlementVault).
+		_ = helloworldl1.NewHelloWorldL1
 
 		// Example 3: List available contracts
 		tw.logger.Info("Available contracts", zap.Strings("contracts", tw.contractStore.ListContracts()))
 	}
 
-	// Return the (placeholder) result; real logic should include:
-	// - Auction path: determine winner / settlement payload; send back commitment.
-	// - Insurance path: produce deterministic payout vector (EigenAI-backed) and signature material.
-	var resultBytes = []byte(taskKind)
 	return &performerV1.TaskResponse{
 		TaskId: t.TaskId,
 		Result: resultBytes,
 	}, nil
+}
+
+// Task envelope schema (JSON over TaskRequest.Data) to route auction vs insurance work.
+type TaskEnvelope struct {
+	Kind      string            `json:"kind"` // "auction_settlement" | "insurance_payout"
+	Auction   *AuctionTask      `json:"auction,omitempty"`
+	Insurance *InsuranceTask    `json:"insurance,omitempty"`
+	Metadata  map[string]string `json:"meta,omitempty"`
+}
+
+type AuctionTask struct {
+	AuctionId       uint64 `json:"auction_id"`
+	PoolId          string `json:"pool_id"`           // bytes32 hex
+	OracleUpdateId  string `json:"oracle_update_id"`  // bytes32 hex
+	SettlementData  string `json:"settlement_data"`   // hex-encoded payload to submit onchain
+	ExpectedBidWei  string `json:"expected_bid_wei"`  // hex or decimal string
+	AppId           string `json:"app_id"`            // EigenCompute appId (hex)
+	ImageDigest     string `json:"image_digest"`      // Docker digest (hex)
+	SubmissionNonce uint64 `json:"submission_nonce"`  // optional replay guard
+}
+
+type InsuranceTask struct {
+	PolicyBatchId string   `json:"policy_batch_id"`
+	Events        []string `json:"events"`        // descriptions / ids
+	Seed          uint64   `json:"seed"`          // for deterministic EigenAI call
+	AmountWei     string   `json:"amount_wei"`    // total pot to allocate
+	AppId         string   `json:"app_id"`        // EigenCompute appId (hex)
+	ImageDigest   string   `json:"image_digest"`  // Docker digest (hex)
+}
+
+func decodeTaskEnvelope(data []byte) (*TaskEnvelope, error) {
+	var env TaskEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, err
+	}
+	return &env, nil
+}
+
+func (tw *TaskWorker) handleAuctionSettlement(a *AuctionTask) ([]byte, error) {
+	if a == nil {
+		return nil, fmt.Errorf("auction task missing")
+	}
+	tw.logger.Sugar().Infow("Auction settlement task",
+		"auction_id", a.AuctionId,
+		"pool_id", a.PoolId,
+		"oracle_update_id", a.OracleUpdateId,
+	)
+	// TODO: verify appId/imageDigest against attestation allowlist; submit settlement onchain.
+	return []byte("auction_ok"), nil
+}
+
+func (tw *TaskWorker) handleInsurancePayout(ins *InsuranceTask) ([]byte, error) {
+	if ins == nil {
+		return nil, fmt.Errorf("insurance task missing")
+	}
+	tw.logger.Sugar().Infow("Insurance payout task",
+		"batch", ins.PolicyBatchId,
+		"events", ins.Events,
+		"seed", ins.Seed,
+	)
+	// TODO: call EigenAI deterministically with seed; compute payout vector; return bytes.
+	return []byte("insurance_ok"), nil
 }
 
 func main() {
