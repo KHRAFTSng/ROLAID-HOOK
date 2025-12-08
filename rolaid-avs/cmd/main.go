@@ -66,11 +66,13 @@ func (tw *TaskWorker) ValidateTask(t *performerV1.TaskRequest) error {
 		zap.Any("task", t),
 	)
 
-	// ------------------------------------------------------------------------
-	// Implement your AVS task validation logic here
-	// ------------------------------------------------------------------------
-	// This is where the Perfomer will validate the task request data.
-	// E.g. the Perfomer may validate that the request params are well-formed and adhere to a schema.
+	// LVR/insurance context: require a task payload and task id.
+	if len(t.GetTaskId()) == 0 {
+		return fmt.Errorf("missing task id")
+	}
+	if len(t.GetData()) == 0 {
+		return fmt.Errorf("missing task payload")
+	}
 
 	return nil
 }
@@ -80,11 +82,11 @@ func (tw *TaskWorker) HandleTask(t *performerV1.TaskRequest) (*performerV1.TaskR
 		zap.Any("task", t),
 	)
 
-	// ------------------------------------------------------------------------
-	// Example: How to interact with contracts
-	// ------------------------------------------------------------------------
+	// Placeholder routing: in a full implementation, decode `t.Data` to determine
+	// whether this is an auction-settlement task or an insurance-payout task.
+	taskKind := "unknown"
 
-	// Example 1: Generate bindings to contracts
+	// Example: interact with onchain components if configured
 	if tw.contractStore != nil {
 
 		taskRegistrarAddr, err := tw.contractStore.GetTaskAVSRegistrar()
@@ -119,12 +121,10 @@ func (tw *TaskWorker) HandleTask(t *performerV1.TaskRequest) (*performerV1.TaskR
 		tw.logger.Info("Available contracts", zap.Strings("contracts", tw.contractStore.ListContracts()))
 	}
 
-	// ------------------------------------------------------------------------
-	// Implement your AVS logic here
-	// ------------------------------------------------------------------------
-	// This is where the Performer will do the work and provide compute.
-	// E.g. the Perfomer could call an external API, a local service or a script.
-	var resultBytes []byte
+	// Return the (placeholder) result; real logic should include:
+	// - Auction path: determine winner / settlement payload; send back commitment.
+	// - Insurance path: produce deterministic payout vector (EigenAI-backed) and signature material.
+	var resultBytes = []byte(taskKind)
 	return &performerV1.TaskResponse{
 		TaskId: t.TaskId,
 		Result: resultBytes,
