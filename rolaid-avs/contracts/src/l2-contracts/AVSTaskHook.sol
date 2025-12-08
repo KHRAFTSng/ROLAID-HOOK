@@ -9,13 +9,13 @@ contract AVSTaskHook is IAVSTaskHook {
         address, /*caller*/
         ITaskMailboxTypes.TaskParams memory /*taskParams*/
     ) external view {
-        //TODO: Implement
+        // Accept all tasks by default; customize for LVR/insurance constraints if needed.
     }
 
     function handlePostTaskCreation(
         bytes32 /*taskHash*/
     ) external {
-        //TODO: Implement
+        // No-op hook; extend to emit signals or route to offchain auctioneer if desired.
     }
 
     function validatePreTaskResultSubmission(
@@ -24,19 +24,20 @@ contract AVSTaskHook is IAVSTaskHook {
         bytes memory, /*cert*/
         bytes memory /*result*/
     ) external view {
-        //TODO: Implement
+        // Accept all result submissions by default; add checks when wiring task semantics.
     }
 
     function handlePostTaskResultSubmission(
         address, /*caller*/
         bytes32 /*taskHash*/
     ) external {
-        //TODO: Implement
+        // No-op hook; extend to update state or emit events.
     }
 
     function calculateTaskFee(
         ITaskMailboxTypes.TaskParams memory /*taskParams*/
     ) external view returns (uint96) {
-        //TODO: Implement
+        // No task fee charged by default.
+        return 0;
     }
 }

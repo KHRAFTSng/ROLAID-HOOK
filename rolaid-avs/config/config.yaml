@@ -3,7 +3,7 @@ config:
     project:
         name: rolaid-avs
         version: 0.1.0
-        context: devnet
+        context: sepolia
         project_uuid: b9ab23d5-a09f-45f9-b42a-a06fd6545d35
         telemetry_enabled: true
         templateBaseUrl: https://github.com/Layr-Labs/hourglass-avs-template
