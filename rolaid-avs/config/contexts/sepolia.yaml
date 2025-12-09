@@ -1,0 +1,62 @@
+# Sepolia context for L1-only deployments
+version: 0.1.1
+context:
+  name: "sepolia"
+  chains:
+    l1:
+      chain_id: 11155111
+      rpc_url: "${L1_RPC_URL:-https://sepolia.infura.io/v3/YOUR_KEY}"
+      fork:
+        block: 0
+        url: ""
+        block_time: 12
+    l2:
+      chain_id: 0
+      rpc_url: ""
+      fork:
+        block: 0
+        url: ""
+        block_time: 0
+  transporter:
+    schedule: ""
+    private_key: "${TRANSPORTER_PRIVKEY:-}"
+    bls_private_key: "${TRANSPORTER_BLS_PRIVKEY:-}"
+    active_stake_roots: []
+  deployer_private_key: "${DEPLOYER_PRIVKEY:-}"
+  app_private_key: "${APP_PRIVKEY:-}"
+  stakers: []
+  operators: []
+  avs:
+    address: "${AVS_ADDRESS:-}"
+    avs_private_key: "${AVS_PRIVKEY:-}"
+    metadata_url: ""
+    registrar_address: "${REGISTRAR_ADDRESS:-}"
+  eigenlayer:
+    l1:
+      allocation_manager: ""
+      delegation_manager: ""
+      strategy_manager: ""
+      bn254_table_calculator: ""
+      ecdsa_table_calculator: ""
+      cross_chain_registry: ""
+      key_registrar: ""
+      release_manager: ""
+      operator_table_updater: ""
+      task_mailbox: ""
+      permission_controller: ""
+    l2:
+      bn254_certificate_verifier: ""
+      operator_table_updater: ""
+      ecdsa_certificate_verifier: ""
+      task_mailbox: ""
+  deployed_l1_contracts: []
+  deployed_l2_contracts: []
+  operator_sets: []
+  operator_registrations: []
+  artifact:
+    artifactId: ""
+    component: ""
+    digest: ""
+    registry: ""
+    version: ""
+

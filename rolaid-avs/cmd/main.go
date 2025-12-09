@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Layr-Labs/hourglass-avs-template/contracts/bindings/l1/helloworldl1"
@@ -183,8 +184,32 @@ func (tw *TaskWorker) handleAuctionSettlement(a *AuctionTask) ([]byte, error) {
 		"pool_id", a.PoolId,
 		"oracle_update_id", a.OracleUpdateId,
 	)
-	// TODO: verify appId/imageDigest against attestation allowlist; submit settlement onchain.
-	return []byte("auction_ok"), nil
+
+	if err := requireHex("pool_id", a.PoolId, 66); err != nil {
+		return nil, err
+	}
+	if err := requireHex("oracle_update_id", a.OracleUpdateId, 66); err != nil {
+		return nil, err
+	}
+	if err := requireHex("app_id", a.AppId, 66); err != nil {
+		return nil, err
+	}
+	if err := requireHex("image_digest", a.ImageDigest, 66); err != nil {
+		return nil, err
+	}
+	if _, err := decodeHexBytes(a.SettlementData); err != nil {
+		return nil, fmt.Errorf("settlement_data invalid hex: %w", err)
+	}
+
+	commitment := hashStrings(a.SettlementData, a.OracleUpdateId, a.PoolId)
+	resp := map[string]interface{}{
+		"kind":            "auction_settlement",
+		"auction_id":      a.AuctionId,
+		"oracle_update_id": a.OracleUpdateId,
+		"pool_id":         a.PoolId,
+		"commitment":      fmt.Sprintf("0x%x", commitment),
+	}
+	return json.Marshal(resp)
 }
 
 func (tw *TaskWorker) handleInsurancePayout(ins *InsuranceTask) ([]byte, error) {
@@ -196,8 +221,57 @@ func (tw *TaskWorker) handleInsurancePayout(ins *InsuranceTask) ([]byte, error) 
 		"events", ins.Events,
 		"seed", ins.Seed,
 	)
-	// TODO: call EigenAI deterministically with seed; compute payout vector; return bytes.
-	return []byte("insurance_ok"), nil
+
+	if err := requireHex("app_id", ins.AppId, 66); err != nil {
+		return nil, err
+	}
+	if err := requireHex("image_digest", ins.ImageDigest, 66); err != nil {
+		return nil, err
+	}
+
+	payoutCommitment := hashStrings(strings.Join(ins.Events, ","), fmt.Sprint(ins.Seed), ins.AmountWei)
+	resp := map[string]interface{}{
+		"kind":             "insurance_payout",
+		"policy_batch_id":  ins.PolicyBatchId,
+		"payout_commitment": fmt.Sprintf("0x%x", payoutCommitment),
+		"seed":             ins.Seed,
+	}
+	return json.Marshal(resp)
+}
+
+func requireHex(field string, val string, expectLen int) error {
+	if len(val) == 0 {
+		return fmt.Errorf("%s missing", field)
+	}
+	if !strings.HasPrefix(val, "0x") {
+		return fmt.Errorf("%s must start with 0x", field)
+	}
+	if expectLen > 0 && len(val) != expectLen {
+		return fmt.Errorf("%s length must be %d chars incl 0x", field, expectLen)
+	}
+	return nil
+}
+
+func decodeHexBytes(s string) ([]byte, error) {
+	if strings.HasPrefix(s, "0x") {
+		s = s[2:]
+	}
+	return hexToBytes(s)
+}
+
+func hexToBytes(s string) ([]byte, error) {
+	if len(s)%2 != 0 {
+		s = "0" + s
+	}
+	return hex.DecodeString(s)
+}
+
+func hashStrings(parts ...string) []byte {
+	h := sha256.New()
+	for _, p := range parts {
+		h.Write([]byte(p))
+	}
+	return h.Sum(nil)
 }
 
 func main() {
