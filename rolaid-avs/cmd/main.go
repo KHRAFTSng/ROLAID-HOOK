@@ -177,6 +177,18 @@ func decodeTaskEnvelope(data []byte) (*TaskEnvelope, error) {
 	if err := json.Unmarshal(data, &env); err != nil {
 		return nil, err
 	}
+
+	// Basic attestation presence checks (real verification happens onchain via registry/AuctionService).
+	if env.Kind == "auction_settlement" && env.Auction != nil {
+		if env.Auction.AppId == "" || env.Auction.ImageDigest == "" {
+			return nil, fmt.Errorf("auction task missing app attestation fields")
+		}
+	}
+	if env.Kind == "insurance_payout" && env.Insurance != nil {
+		if env.Insurance.AppId == "" || env.Insurance.ImageDigest == "" {
+			return nil, fmt.Errorf("insurance task missing app attestation fields")
+		}
+	}
 	return &env, nil
 }
 
