@@ -59,4 +59,13 @@ context:
     digest: ""
     registry: ""
     version: ""
+  lvr:
+    auction_service: "${AUCTION_SERVICE_ADDRESS:-}"
+    settlement_vault: "${SETTLEMENT_VAULT_ADDRESS:-}"
+    app_ids:
+      auctioneer: "${AUCTIONEER_APP_ID:-}"
+      insurance: "${INSURANCE_APP_ID:-}"
+    image_digests:
+      auctioneer: "${AUCTIONEER_IMAGE_DIGEST:-}"
+      insurance: "${INSURANCE_IMAGE_DIGEST:-}"
 

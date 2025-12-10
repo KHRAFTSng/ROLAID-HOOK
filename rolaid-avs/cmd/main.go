@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"crypto/sha256"
+	"encoding/hex"
 	"time"
 
 	"github.com/Layr-Labs/hourglass-avs-template/contracts/bindings/l1/helloworldl1"
@@ -156,6 +158,8 @@ type AuctionTask struct {
 	AppId           string `json:"app_id"`            // EigenCompute appId (hex)
 	ImageDigest     string `json:"image_digest"`      // Docker digest (hex)
 	SubmissionNonce uint64 `json:"submission_nonce"`  // optional replay guard
+	AuctionService  string `json:"auction_service,omitempty"`   // optional override
+	SettlementVault string `json:"settlement_vault,omitempty"`  // optional override
 }
 
 type InsuranceTask struct {
@@ -165,6 +169,7 @@ type InsuranceTask struct {
 	AmountWei     string   `json:"amount_wei"`    // total pot to allocate
 	AppId         string   `json:"app_id"`        // EigenCompute appId (hex)
 	ImageDigest   string   `json:"image_digest"`  // Docker digest (hex)
+	SettlementVault string `json:"settlement_vault,omitempty"`
 }
 
 func decodeTaskEnvelope(data []byte) (*TaskEnvelope, error) {
@@ -201,6 +206,11 @@ func (tw *TaskWorker) handleAuctionSettlement(a *AuctionTask) ([]byte, error) {
 		return nil, fmt.Errorf("settlement_data invalid hex: %w", err)
 	}
 
+	auctionService := firstNonEmpty(a.AuctionService, os.Getenv("AUCTION_SERVICE_ADDRESS"))
+	if auctionService == "" {
+		return nil, fmt.Errorf("auction_service address missing (env AUCTION_SERVICE_ADDRESS)")
+	}
+
 	commitment := hashStrings(a.SettlementData, a.OracleUpdateId, a.PoolId)
 	resp := map[string]interface{}{
 		"kind":            "auction_settlement",
@@ -208,6 +218,7 @@ func (tw *TaskWorker) handleAuctionSettlement(a *AuctionTask) ([]byte, error) {
 		"oracle_update_id": a.OracleUpdateId,
 		"pool_id":         a.PoolId,
 		"commitment":      fmt.Sprintf("0x%x", commitment),
+		"auction_service": auctionService,
 	}
 	return json.Marshal(resp)
 }
@@ -229,12 +240,18 @@ func (tw *TaskWorker) handleInsurancePayout(ins *InsuranceTask) ([]byte, error) 
 		return nil, err
 	}
 
+	settlementVault := firstNonEmpty(ins.SettlementVault, os.Getenv("SETTLEMENT_VAULT_ADDRESS"))
+	if settlementVault == "" {
+		return nil, fmt.Errorf("settlement_vault address missing (env SETTLEMENT_VAULT_ADDRESS)")
+	}
+
 	payoutCommitment := hashStrings(strings.Join(ins.Events, ","), fmt.Sprint(ins.Seed), ins.AmountWei)
 	resp := map[string]interface{}{
 		"kind":             "insurance_payout",
 		"policy_batch_id":  ins.PolicyBatchId,
 		"payout_commitment": fmt.Sprintf("0x%x", payoutCommitment),
 		"seed":             ins.Seed,
+		"settlement_vault": settlementVault,
 	}
 	return json.Marshal(resp)
 }
@@ -256,13 +273,6 @@ func decodeHexBytes(s string) ([]byte, error) {
 	if strings.HasPrefix(s, "0x") {
 		s = s[2:]
 	}
-	return hexToBytes(s)
-}
-
-func hexToBytes(s string) ([]byte, error) {
-	if len(s)%2 != 0 {
-		s = "0" + s
-	}
 	return hex.DecodeString(s)
 }
 
@@ -272,6 +282,13 @@ func hashStrings(parts ...string) []byte {
 		h.Write([]byte(p))
 	}
 	return h.Sum(nil)
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 func main() {
