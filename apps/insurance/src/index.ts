@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import { privateKeyToAccount } from 'viem/accounts';
+import * as http from 'http';
 
 dotenv.config();
 
@@ -111,31 +112,123 @@ async function verifyDeterminism(prompt: string, seed: number, useGrant: boolean
   console.log('Determinism verified for seed', seed);
 }
 
-async function main() {
-  const seed = Number(process.env.EIGENAI_SEED || 42);
-  const prompt =
-    process.env.EIGENAI_PROMPT ||
-    'Compute deterministic insurance payouts for a simple one-event claim.';
+async function handlePayout(prompt: string, seed: number, verify: boolean = true) {
+  try {
+    const hasApiKey = !!process.env.EIGENAI_API_KEY;
+    const useGrant = !hasApiKey;
 
-  const hasApiKey = !!process.env.EIGENAI_API_KEY;
-  const useGrant = !hasApiKey;
+    console.log(
+      'Calling EigenAI',
+      useGrant
+        ? { mode: 'grant', server: GRANT_SERVER, model: MODEL, seed }
+        : { mode: 'api-key', env: EIGENAI_ENV, model: MODEL, seed, baseUrl: BASE_URL }
+    );
 
-  console.log(
-    'Calling EigenAI',
-    useGrant
-      ? { mode: 'grant', server: GRANT_SERVER, model: MODEL, seed }
-      : { mode: 'api-key', env: EIGENAI_ENV, model: MODEL, seed, baseUrl: BASE_URL }
-  );
+    const content = await (useGrant ? callEigenAIWithGrant : callEigenAIWithApiKey)(prompt, seed);
+    console.log('EigenAI response:\n', content);
 
-  const content = await (useGrant ? callEigenAIWithGrant : callEigenAIWithApiKey)(prompt, seed);
-  console.log('EigenAI response:\n', content);
+    if (verify && (process.env.VERIFY_DETERMINISM || 'true').toLowerCase() === 'true') {
+      await verifyDeterminism(prompt, seed, useGrant);
+    }
 
-  if ((process.env.VERIFY_DETERMINISM || 'true').toLowerCase() === 'true') {
-    await verifyDeterminism(prompt, seed, useGrant);
+    return { success: true, content, seed, prompt };
+  } catch (err: any) {
+    return { success: false, error: err.message };
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// HTTP server for E2E testing
+const PORT = Number(process.env.APP_PORT || 8002);
+
+function startServer() {
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url || '/', `http://${req.headers.host}`);
+    
+    // CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Content-Type', 'application/json');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+    
+    if (url.pathname === '/health') {
+      res.writeHead(200);
+      res.end(JSON.stringify({ status: 'ok', service: 'insurance' }));
+      return;
+    }
+    
+    if (url.pathname === '/payout' && req.method === 'POST') {
+      try {
+        let body = '';
+        for await (const chunk of req) {
+          body += chunk.toString();
+        }
+        const data = JSON.parse(body);
+        
+        const prompt = data.prompt || process.env.EIGENAI_PROMPT || 'Compute deterministic insurance payouts for a simple one-event claim.';
+        const seed = Number(data.seed || process.env.EIGENAI_SEED || 42);
+        const verify = data.verify !== undefined ? data.verify : (process.env.VERIFY_DETERMINISM || 'true').toLowerCase() === 'true';
+
+        const result = await handlePayout(prompt, seed, verify);
+        res.writeHead(200);
+        res.end(JSON.stringify(result));
+      } catch (err: any) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    res.writeHead(404);
+    res.end(JSON.stringify({ error: 'Not found' }));
+  });
+
+  server.listen(PORT, () => {
+    console.log(`Insurance server running on port ${PORT}`);
+  });
+
+  return server;
+}
+
+// Run as HTTP server if APP_PORT is set, otherwise run as one-off script
+if (process.env.APP_PORT) {
+  startServer().catch((err) => {
+    console.error('Server error:', err);
+    process.exit(1);
+  });
+} else {
+  // One-off mode for backward compatibility
+  async function main() {
+    const seed = Number(process.env.EIGENAI_SEED || 42);
+    const prompt =
+      process.env.EIGENAI_PROMPT ||
+      'Compute deterministic insurance payouts for a simple one-event claim.';
+
+    const hasApiKey = !!process.env.EIGENAI_API_KEY;
+    const useGrant = !hasApiKey;
+
+    console.log(
+      'Calling EigenAI',
+      useGrant
+        ? { mode: 'grant', server: GRANT_SERVER, model: MODEL, seed }
+        : { mode: 'api-key', env: EIGENAI_ENV, model: MODEL, seed, baseUrl: BASE_URL }
+    );
+
+    const content = await (useGrant ? callEigenAIWithGrant : callEigenAIWithApiKey)(prompt, seed);
+    console.log('EigenAI response:\n', content);
+
+    if ((process.env.VERIFY_DETERMINISM || 'true').toLowerCase() === 'true') {
+      await verifyDeterminism(prompt, seed, useGrant);
+    }
+  }
+
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

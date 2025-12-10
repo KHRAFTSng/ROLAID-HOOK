@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  auctioneer:
+    build:
+      context: ./apps/auctioneer
+      dockerfile: Dockerfile
+    container_name: rolaid-auctioneer
+    ports:
+      - "8001:8001"
+    environment:
+      # Server config
+      - APP_PORT=8001
+      # Wallet & RPC
+      - PRIVATE_KEY=${PRIVATE_KEY}
+      - L1_RPC_URL=${L1_RPC_URL}
+      - SEPOLIA_RPC_URL=${SEPOLIA_RPC_URL}
+      # Contract addresses (set after deployment)
+      - AUCTION_SERVICE_ADDRESS=${AUCTION_SERVICE_ADDRESS:-}
+      - SETTLEMENT_VAULT_ADDRESS=${SETTLEMENT_VAULT_ADDRESS:-}
+      # Attestation (set after eigenx app deploy)
+      - APP_ID=${AUCTIONEER_APP_ID:-}
+      - IMAGE_DIGEST=${AUCTIONEER_IMAGE_DIGEST:-}
+      # Settlement params
+      - BIDDER_ADDRESS=${BIDDER_ADDRESS:-}
+      - BID_AMOUNT_ETH=${BID_AMOUNT_ETH:-0.001}
+      - SETTLEMENT_DATA_HEX=${SETTLEMENT_DATA_HEX:-0x}
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - rolaid-network
+    command: node dist/index.js
+
+  insurance:
+    build:
+      context: ./apps/insurance
+      dockerfile: Dockerfile
+    container_name: rolaid-insurance
+    ports:
+      - "8002:8002"
+    environment:
+      # Server config
+      - APP_PORT=8002
+      # Wallet for grant-based auth
+      - PRIVATE_KEY=${PRIVATE_KEY}
+      # EigenAI config
+      - EIGENAI_ENV=${EIGENAI_ENV:-sepolia}
+      - EIGENAI_BASE_URL=${EIGENAI_BASE_URL:-}
+      - EIGENAI_MODEL=${EIGENAI_MODEL:-gpt-oss-120b-f16}
+      - EIGENAI_API_KEY=${EIGENAI_API_KEY:-}
+      - EIGENAI_SEED=${EIGENAI_SEED:-42}
+      - EIGENAI_PROMPT=${EIGENAI_PROMPT:-Compute deterministic insurance payouts for a simple one-event claim.}
+      - VERIFY_DETERMINISM=${VERIFY_DETERMINISM:-true}
+      # Grant-based auth
+      - DETERMINAL_SERVER_URL=${DETERMINAL_SERVER_URL:-https://determinal-api.eigenarcade.com}
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - rolaid-network
+    command: node dist/index.js
+
+  # AVS performer (optional, requires more setup with keystores)
+  # avs-performer:
+  #   build:
+  #     context: ./rolaid-avs
+  #     dockerfile: Dockerfile
+  #   container_name: rolaid-avs-performer
+  #   environment:
+  #     - L1_RPC_URL=${L1_RPC_URL}
+  #     - L2_RPC_URL=${L2_RPC_URL}
+  #     - BASE_SEPOLIA_RPC_URL=${BASE_SEPOLIA_RPC_URL}
+  #     - TRANSPORTER_PRIVKEY=${TRANSPORTER_PRIVKEY:-}
+  #     - TRANSPORTER_BLS_PRIVKEY=${TRANSPORTER_BLS_PRIVKEY:-}
+  #     - DEPLOYER_PRIVKEY=${DEPLOYER_PRIVATE_KEY}
+  #     - APP_PRIVKEY=${PRIVATE_KEY}
+  #     - AVS_ADDRESS=${AVS_ADDRESS:-}
+  #     - AVS_PRIVKEY=${AVS_PRIVKEY:-}
+  #     - REGISTRAR_ADDRESS=${REGISTRAR_ADDRESS:-}
+  #     - AUCTION_SERVICE_ADDRESS=${AUCTION_SERVICE_ADDRESS:-}
+  #     - SETTLEMENT_VAULT_ADDRESS=${SETTLEMENT_VAULT_ADDRESS:-}
+  #     - AUCTIONEER_APP_ID=${AUCTIONEER_APP_ID:-}
+  #     - INSURANCE_APP_ID=${INSURANCE_APP_ID:-}
+  #     - AUCTIONEER_IMAGE_DIGEST=${AUCTIONEER_IMAGE_DIGEST:-}
+  #     - INSURANCE_IMAGE_DIGEST=${INSURANCE_IMAGE_DIGEST:-}
+  #   env_file:
+  #     - .env
+  #   volumes:
+  #     - ./rolaid-avs/keystores:/app/keystores:ro
+  #   restart: unless-stopped
+  #   networks:
+  #     - rolaid-network
+  #   command: /usr/local/bin/performer
+
+networks:
+  rolaid-network:
+    driver: bridge
+
