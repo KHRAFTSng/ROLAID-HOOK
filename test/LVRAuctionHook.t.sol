@@ -67,24 +67,66 @@ contract LVRAuctionHookTest is Test {
         assertEq(address(hook.poolManager()), address(poolManager));
     }
 
+    function testSetAuctionService() public {
+        hook.setAuctionService(address(0xBEEF));
+        assertEq(hook.auctionService(), address(0xBEEF));
+    }
+
+    function testAuthorizeRequiresServiceSet() public {
+        PoolKey memory key = _poolKey();
+        vm.expectRevert("not service");
+        hook.authorizeAuction(key, address(this), uint64(block.timestamp + 10), bytes32("o"));
+    }
+
+    function testAuthorizeChecksWinnerAndExpiry() public {
+        PoolKey memory key = _poolKey();
+        hook.setAuctionService(address(this));
+
+        vm.expectRevert("winner=0");
+        hook.authorizeAuction(key, address(0), uint64(block.timestamp + 10), bytes32("o"));
+
+        vm.expectRevert("expiry<=now");
+        hook.authorizeAuction(key, address(this), uint64(block.timestamp), bytes32("o"));
+    }
+
+    function testRevokeClearsAccess() public {
+        PoolKey memory key = _poolKey();
+        hook.setAuctionService(address(this));
+        hook.authorizeAuction(key, address(this), uint64(block.timestamp + 10), bytes32("o"));
+
+        hook.revokeAuction(key);
+        SwapParams memory params = _swapParams();
+        bytes memory data = abi.encode("payload");
+        vm.expectRevert("auction:inactive");
+        hook.callBeforeSwap(address(this), key, params, data);
+    }
+
+    function testBeforeSwapRespectsExpiry() public {
+        PoolKey memory key = _poolKey();
+        hook.setAuctionService(address(this));
+        hook.authorizeAuction(key, address(this), uint64(block.timestamp + 1), bytes32("o"));
+
+        vm.warp(block.timestamp + 2);
+        SwapParams memory params = _swapParams();
+        bytes memory data = abi.encode("payload");
+        vm.expectRevert("auction:expired");
+        hook.callBeforeSwap(address(this), key, params, data);
+    }
+
+    function testBeforeSwapRejectsUnauthorizedSender() public {
+        PoolKey memory key = _poolKey();
+        hook.setAuctionService(address(this));
+        hook.authorizeAuction(key, address(0xB1D), uint64(block.timestamp + 10), bytes32("o"));
+
+        SwapParams memory params = _swapParams();
+        bytes memory data = abi.encode("payload");
+        vm.expectRevert("auction:unauthorized");
+        hook.callBeforeSwap(address(this), key, params, data);
+    }
+
     function testAfterSwapEmitsEvent() public {
-        // Construct minimal PoolKey
-        Currency c0 = Currency.wrap(address(0xAAA1));
-        Currency c1 = Currency.wrap(address(0xAAA2));
-        PoolKey memory key = PoolKey({
-            currency0: c0,
-            currency1: c1,
-            fee: 3000,
-            tickSpacing: 10,
-            hooks: IHooks(address(hook))
-        });
-
-        SwapParams memory params = SwapParams({
-            zeroForOne: true,
-            amountSpecified: 100,
-            sqrtPriceLimitX96: 0
-        });
-
+        PoolKey memory key = _poolKey();
+        SwapParams memory params = _swapParams();
         BalanceDelta delta = BalanceDeltaLibrary.ZERO_DELTA;
         bytes memory data = abi.encode("payload");
 
@@ -113,20 +155,8 @@ contract LVRAuctionHookTest is Test {
     }
 
     function testBeforeSwapRequiresWinnerAndNotExpired() public {
-        Currency c0 = Currency.wrap(address(0xAAA1));
-        Currency c1 = Currency.wrap(address(0xAAA2));
-        PoolKey memory key = PoolKey({
-            currency0: c0,
-            currency1: c1,
-            fee: 3000,
-            tickSpacing: 10,
-            hooks: IHooks(address(hook))
-        });
-        SwapParams memory params = SwapParams({
-            zeroForOne: true,
-            amountSpecified: 100,
-            sqrtPriceLimitX96: 0
-        });
+        PoolKey memory key = _poolKey();
+        SwapParams memory params = _swapParams();
         bytes memory data = abi.encode("payload");
 
         vm.expectRevert("auction:inactive");
@@ -141,6 +171,22 @@ contract LVRAuctionHookTest is Test {
         vm.warp(block.timestamp + 2);
         vm.expectRevert("auction:expired");
         hook.callBeforeSwap(address(0xB1D), key, params, data);
+    }
+
+    function _poolKey() internal view returns (PoolKey memory key) {
+        Currency c0 = Currency.wrap(address(0xAAA1));
+        Currency c1 = Currency.wrap(address(0xAAA2));
+        key = PoolKey({
+            currency0: c0,
+            currency1: c1,
+            fee: 3000,
+            tickSpacing: 10,
+            hooks: IHooks(address(hook))
+        });
+    }
+
+    function _swapParams() internal pure returns (SwapParams memory params) {
+        params = SwapParams({zeroForOne: true, amountSpecified: 100, sqrtPriceLimitX96: 0});
     }
 }
 
