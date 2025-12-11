@@ -76,15 +76,22 @@ contract HookSettlementIntegrationTest is Test {
     }
 
     function testFullFlow_HookGatingAndSettlementSplit() public {
-        // Authorize auction in hook
-        hook.setAuctionService(address(this));
+        // Create auction first (service is owned by this test contract)
+        bytes32 oracleUpdateId = bytes32("oracle");
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 10);
+        uint256 auctionId = service.createAuction(oracleUpdateId, startTime, endTime);
+        
+        // Set auction service in hook and authorize (call as service)
         PoolKey memory key = _poolKey();
+        hook.setAuctionService(address(service));
+        vm.prank(address(service));
+        hook.authorizeAuction(key, address(this), endTime, oracleUpdateId);
+
+        // Simulate swap gated by hook
         SwapParams memory params = _swapParams();
         bytes memory data = abi.encode("payload");
 
-        hook.authorizeAuction(key, address(this), uint64(block.timestamp + 10), bytes32("oracle"));
-
-        // Simulate swap gated by hook
         vm.recordLogs();
         hook.callBeforeSwap(address(this), key, params, data);
         hook.callAfterSwap(key, params, BalanceDeltaLibrary.ZERO_DELTA, data);
@@ -97,7 +104,7 @@ contract HookSettlementIntegrationTest is Test {
 
         vm.deal(address(this), 1 ether);
         service.submitSettlement{value: 1 ether}(
-            1, APP_ID, DIGEST, address(0xB1DD3), 1 ether, abi.encode("payload")
+            auctionId, APP_ID, DIGEST, address(0xB1DD3), 1 ether, abi.encode("payload")
         );
 
         assertEq(lpSink.balance - lpBefore, (1 ether * 7000) / 10_000, "lp split");
